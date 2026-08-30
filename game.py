@@ -1,5 +1,6 @@
 import pygame
 from bird import Bird
+from camera import Camera
 from pipe import Pipe
 
 
@@ -26,7 +27,7 @@ class Game:
         self.score = 0
         
         self.bird = Bird((255, 255, 0), 55)
-        self.camera = None  #EDIT
+        self.camera = Camera(self.screen_w, self.screen_h)
         self.pipes = []
 
         self.PIPE_SPAWN = pygame.USEREVENT + 1      # cusotm event PIPE_SPAWN
