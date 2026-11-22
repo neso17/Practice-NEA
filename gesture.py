@@ -3,6 +3,8 @@ import cv2
 import math
 import numpy as np
 import pygame
+import time
+import queue
 
 class Gesture:
     def __init__(self, screen_w, screen_h):
@@ -12,7 +14,7 @@ class Gesture:
         self.running = True
         self.cap = cv2.VideoCapture(0)
 
-        # Initialize MediaPipe
+        # Initialise MediaPipe
         self.mp_hands = mp.solutions.hands
         self.hands = self.mp_hands.Hands(
             max_num_hands=1, 
@@ -21,101 +23,176 @@ class Gesture:
         )
 
         self.mp_draw = mp.solutions.drawing_utils
+        self.joints = []
+        self.skeleton_surface = pygame.Surface((self.screen_w, self.screen_h), pygame.SRCALPHA)
 
-    def processing(self):
-        if self.running:
-            success, raw = self.cap.read()
-            if not success:
-                return None
-            mirrored = cv2.flip(raw, 1)
-            display = cv2.cvtColor(mirrored, cv2.COLOR_BGR2RGB) #rgb for pygame display, bgr for mediapipe
-            colored = cv2.cvtColor(mirrored, cv2.COLOR_BGR2RGB)
-            resized = cv2.resize(colored, (self.screen_w, self.screen_h))
+        self.indexF_y = 0
+        self.currentG = "NONE"
 
-            landmarks = self.hands.process(resized)
-            display = resized.copy()
+        self.indexF_log = queue.Queue(maxsize=5)  # for swipe/ hover checking 
+        self.hover_start_time = 0
+        self.hRAD = 30  # hover radius 
+        self.hTHRESHOLD = 1.0  # s
+        self.sSPEED = 50
 
-            return landmarks, display
 
-    def drawHand(self, hand_landmarks, frame):
-        black_bg = np.zeros_like(frame)
-        # draw points + connections on black bg
-        self.mp_draw.draw_landmarks(
-            black_bg, 
-            hand_landmarks, 
-            self.mp_hands.HAND_CONNECTIONS,
-            self.mp_draw.DrawingSpec(color=(0, 255, 128), thickness=2, circle_radius=5),
-            self.mp_draw.DrawingSpec(color=(255, 255, 255), thickness=2)
-        )
+    def get_gesture(self):
+        return self.currentG
 
-        display_frame = cv2.transpose(black_bg) #pygame reads horizontal , cv2 reads vertical 
-        pygame_surface = pygame.surfarray.make_surface(display_frame)
-        pygame_surface = pygame.transform.scale(pygame_surface, (self.screen_w, self.screen_h))
-        pygame_surface.set_colorkey((0, 0, 0))  # Set black as transparent
-        return pygame_surface
+    def get_indexF_y(self):
+        return self.indexF_y
+
+    def get_joints(self):
+        return self.joints
+    
+    def processing(self): #process feed and return landmarks
+        if not self.running:
+            return None, None
+        success, raw = self.cap.read()
+        if not success:
+            return None, None
+        
+        mirrored = cv2.flip(raw, 1)
+        coloured = cv2.cvtColor(mirrored, cv2.COLOR_BGR2RGB)
+        resized = cv2.resize(coloured, (self.screen_w, self.screen_h))
+
+        landmarks = self.hands.process(resized)
+        #convert opencv numpy array to pygame surface
+        display = pygame.surfarray.make_surface(np.rot90(resized))
+        display = pygame.transform.flip(display, True, False)
+
+        return landmarks # landmarks for gesture detection
+
+    def draw_hand(self, display): #draws skeleton overlay
+        # make surface of correct size
+        self.skeleton_surface.fill((0, 0, 0, 0))  # Clear the surface with transparency
+
+        #landmark is an object with attrivutes x, y, z, visibility and presence
+        if not self.joints:
+            return self.skeleton_surface
+
+        # bone connections
+        for startI, endI in self.mp_hands.HAND_CONNECTIONS:
+            pygame.draw.line(self.skeleton_surface, (255, 255, 255), self.joints[startI], self.joints[endI], 2)
+
+        # joint circles
+        for joint in self.joints:
+            pygame.draw.circle(self.skeleton_surface, (0, 255, 0), joint, 5)
+
+        display.blit(self.skeleton_surface, (0, 0))
 
     def release(self):
+        self.running = False
         self.cap.release()
         cv2.destroyAllWindows()
 
 
-    def detect_gesture(self, hand_landmarks, w, h):
+    def detect_gesture(self): #detects static gestures
         """Analyzes landmarks and returns: 'CLICK', 'FIST', or 'POINT'"""
-        thumb = hand_landmarks.landmark[4]
-        index = hand_landmarks.landmark[8]
-        middle = hand_landmarks.landmark[12]
-        ring = hand_landmarks.landmark[16]
-        pinky = hand_landmarks.landmark[20]
+        thumbT, indexT, middleT, ringT, pinkyT = self.joints[4], self.joints[8], self.joints[12], self.joints[16], self.joints[20]
+        indexM, middleM, ringM, pinkyM = self.joints[6], self.joints[10], self.joints[14], self.joints[18]
 
-        thumb_x, thumb_y = int(thumb.x * w), int(thumb.y * h)
-        index_x, index_y = int(index.x * w), int(index.y * h)
 
         # 1) CLICK- Thumb and Index touching
-        distance = math.hypot(index_x - thumb_x, index_y - thumb_y)
-        if distance < 30:  # CLICK_THRESHOLD_PIXELS
+        distance = math.hypot(indexT[0] - thumbT[0], indexT[1] - thumbT[1])
+        if distance < 30:
             return "CLICK"
 
         # 2) FIST- Fingers below knuckles
-        if (index.y > hand_landmarks.landmark[6].y and 
-            middle.y > hand_landmarks.landmark[10].y and 
-            ring.y > hand_landmarks.landmark[14].y and 
-            pinky.y > hand_landmarks.landmark[18].y):
+        if (indexT[1] > indexM[1] and
+            middleT[1] > middleM[1] and
+            ringT[1] > ringM[1] and
+            pinkyT[1] > pinkyM[1]):
             return "FIST"
 
-        # 3) POINT- Default state 
-        return "POINT"
+        # 3) POINT- Index finger extended, others curled
+        if (indexT[1] < indexM[1] and
+            middleT[1] > middleM[1] and 
+            ringT[1] > ringM[1] and 
+            pinkyT[1] > pinkyM[1]):
+            return "POINT"
 
+        # 4) Palm open- All fingers extended
+        if (indexT[1] < indexM[1] and
+            middleT[1] < middleM[1] and 
+            ringT[1] < ringM[1] and 
+            pinkyT[1] < pinkyM[1]):
+            return "PALM"
 
+        else:
+            return "NONE"
+    
+    def detect_action(self, gest, hand_landmarks, w, h): #detctions motion
+        if gest != "POINT":
+            return "NONE"
+        
+        indexF_log = queue.Queue(maxsize=5) 
+        for i in range(5):
+            indexF_log.put(hand_landmarks.landmark[8])  # Index fingertip
+
+        # 1) Swipe 
+
+        # 2) Hover
+        for i in range(5):
+            if abs(indexF_log.queue[i].x - indexF_log.queue[i+1].x) < self.hRAD:
+                isHovering = True
+                
+            else:
+                isHovering = False
+                self.hover_start_time = time.time()  # Reset hover timer
+
+    def update(self, screen):
+        results = self.processing()
+        self.joints = []
+
+        if results and results.multi_hand_landmarks:
+            hand_landmarks = results.multi_hand_landmarks[0]
+
+            for lm in hand_landmarks.landmark:
+                self.joints.append((int(lm.x * self.screen_w), int(lm.y * self.screen_h)))
+
+            self.indexF_y = hand_landmarks.landmark[8].y
+            self.currentG = self.detect_gesture()
+            self.draw_hand(screen)
+
+        else:
+            self.indexF_y = 0
+            self.currentG = "NONE"
+            
+        screen.blit(screen, (0, 0))    
 if __name__ == "__main__":
     # 1. Quick Pygame initialization just for testing the display window
     pygame.init()
-    screen = pygame.display.set_mode((1400, 1000))
+    WIDTH, HEIGHT = 1200, 960
+    screen = pygame.display.set_mode((WIDTH, HEIGHT))
+    pygame.display.set_caption("Hand Tracker Test")
     clock = pygame.time.Clock()
+    font = pygame.font.SysFont("Arial", 28, bold=True)
 
-    gesture = Gesture(1400, 1000)
-    print("Window running. Press the 'X' button or close the window to stop.")
+    tracker = Gesture(WIDTH, HEIGHT)
 
     running = True
     while running:
-        clock.tick(30)  # Standard camera frame rate limitation
-
-        # Catch window close commands
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
 
-        screen.fill((40, 60, 160))
+        screen.fill((20, 20, 20))
 
-        results, display = gesture.processing()
-        if results.multi_hand_landmarks:
-            for hand_landmarks in results.multi_hand_landmarks:
-                skeleton_overlay = gesture.drawHand(hand_landmarks, display) #make surface
-                screen.blit(skeleton_overlay, (0, 0))
+        # 1. Update tracker (draws camera + hand skeleton onto screen)
+        tracker.update(screen)
 
-                action = gesture.detect_gesture(hand_landmarks, 1400, 1000)
-                print(f"Tracking Hand - Action detected: {action}")
+        # 2. Draw debug HUD on top to verify gesture detection & pointer coords
+        pointer_pos = tracker.joints[8] if tracker.joints else "N/A"
+        hud_text = font.render(
+            f"Gesture: {tracker.currentG}  |  Pointer: {pointer_pos}",
+            True,
+            (255, 255, 0),
+        )
+        screen.blit(hud_text, (20, 20))
 
-        pygame.display.flip() #pygame updates display
+        pygame.display.flip()
+        clock.tick(60)
 
-    gesture.release()
+    tracker.release()
     pygame.quit()
