@@ -1,13 +1,13 @@
 import pygame
 from bird import Bird
-from camera import Camera
+from gesture import Gesture
 from pipe import Pipe
 
 
 class Game:
     def __init__(self):
         self.screen_w = 1600
-        self.screen_h = 1000
+        self.screen_h = 900
         #set up display: input is tuple of (width, height)
         self.screen = pygame.display.set_mode((self.screen_w, self.screen_h))
         pygame.display.set_caption("Flappy Bird")
@@ -27,7 +27,7 @@ class Game:
         self.score = 0
         
         self.bird = Bird((255, 255, 0), 55)
-        self.camera = Camera(self.screen_w, self.screen_h)
+        self.gesture = Gesture(self.screen_w, self.screen_h)
         self.pipes = []
 
         self.PIPE_SPAWN = pygame.USEREVENT + 1      # cusotm event PIPE_SPAWN
@@ -40,7 +40,7 @@ class Game:
         self.state = "PLAY"
 
     def handle_events(self):
-        #event is a object- params: eventtype, pump(clear queue), exlude) returns List
+        # 1. Handle Pygame window, keyboard, and timer events
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 pygame.quit()
@@ -48,21 +48,40 @@ class Game:
             if event.type == pygame.KEYDOWN:
                 if self.state == "START" and event.key == pygame.K_s:
                     self.state = "PLAY"
-                
                 elif self.state == "PLAY" and event.key == pygame.K_SPACE:
                     self.bird.jumpUp()
-                
                 elif self.state == "END" and event.key == pygame.K_r:
                     self.reset_game()
 
             if event.type == self.PIPE_SPAWN and self.state == "PLAY":
                 self.pipes.append(Pipe(self.screen_w, self.screen_h))
 
+        # 2. Handle continuous gesture input & state transitions every frame
+        currentG = self.gesture.currentG
+        indexF_y = self.gesture.indexF_y
+
+        if self.state == "START":
+            if currentG == "POINT":
+                self.state = "PLAY"
+
+        elif self.state == "PLAY":
+            if currentG == "NONE" or indexF_y is None:
+                self.state = "PAUSE"
+
+        elif self.state == "PAUSE":
+            if currentG != "NONE" and indexF_y is not None:
+                self.state = "PLAY"
+
+        elif self.state == "END":
+            if currentG == "CLICK":
+                self.reset_game()
 
     def update(self):
         self.handle_events()
+        indexF_y = self.gesture.indexF_y
+        currentG = self.gesture.currentG
         if self.state == "PLAY":
-            self.bird.update()
+            self.bird.update(currentG, indexF_y)
 
             for pipe in self.pipes[:]:
                 pipe.move()
@@ -75,16 +94,16 @@ class Game:
             if self.bird.y > self.screen_h or self.bird.y < 0 or any(pipe.hasCollided(self.bird) for pipe in self.pipes):
                 self.state = "END"
                 if self.score > self.high_score:
-                    self.high_score = self.score
-
-    def draw_background(self):
-        self.screen.fill((113, 197, 207))
-        self.screen.blit(self.bg, (0, 0))
+                    self.high_score = self.score       
 
     def draw(self):
-        self.draw_background()
+        self.screen.fill((113, 197, 207))
+        self.screen.blit(self.bg, (0, 0))
+        self.gesture.draw_hand(self.screen)  # Draw hand skeleton overlay on top of game screen
+
+
         if self.state == "START":
-            start_txt = self.font.render("Press 'S' to Start!", True, (255, 255, 255))
+            start_txt = self.font.render("Point to start (or Press 'S')!", True, (255, 255, 255))
             self.screen.blit(start_txt, (self.screen_w // 2 - 100, self.screen_h // 2))
 
         elif self.state == "PLAY":
@@ -120,6 +139,7 @@ class Game:
         
     def run(self):
         while True:
+            self.gesture.update(self.screen)
             self.update()
             self.draw()
             self.clock.tick(60)
