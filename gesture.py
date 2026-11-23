@@ -15,9 +15,7 @@ class Gesture:
 
         self.running = True
         self.cap = cv2.VideoCapture(0)
-        self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.screen_w)
-        self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.screen_h) # resizing once here, rather than every time in update() for performance
-
+       
         # Initialise MediaPipe
         self.mp_hands = mp.solutions.hands
         self.hands = self.mp_hands.Hands(
@@ -92,7 +90,7 @@ class Gesture:
                 for lm in hand_landmarks.landmark:
                     new_joints.append((int(lm.x * self.screen_w), int(lm.y * self.screen_h)))
     
-                new_indexF_y = hand_landmarks.landmark[8].y
+                new_indexF_y = new_joints[8][1] # y-coordinate of index fingertip- check
                 new_currentG = self.detect_gesture(new_joints)
                 self.hand_detected = True
                 
@@ -222,38 +220,4 @@ if __name__ == "__main__":
 
     tracker.release()
     pygame.quit()
-    # 1. Quick Pygame initialization just for testing the display window
-    pygame.init()
-    WIDTH, HEIGHT = 1600, 1080
-    screen = pygame.display.set_mode((WIDTH, HEIGHT))
-    pygame.display.set_caption("Hand Tracker Test")
-    clock = pygame.time.Clock()
-    font = pygame.font.SysFont("Arial", 28, bold=True)
-
-    tracker = Gesture(WIDTH, HEIGHT)
-
-    running = True
-    while running:
-        for event in pygame.event.get():
-            if event.type == pygame.QUIT:
-                running = False
-
-        screen.fill((20, 20, 20))
-
-        # 1. Update tracker (draws camera + hand skeleton onto screen)
-        tracker.draw_hand(screen)
-
-        # 2. Draw debug HUD on top to verify gesture detection & pointer coords
-        pointer_pos = tracker.joints[8] if tracker.joints else "N/A"
-        hud_text = font.render(
-            f"Gesture: {tracker.get_gesture()}  |  Pointer: {pointer_pos}",
-            True,
-            (255, 255, 0),
-        )
-        screen.blit(hud_text, (20, 20))
-
-        pygame.display.flip()
-        clock.tick(60)
-
-    tracker.release()
-    pygame.quit()
+    

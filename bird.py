@@ -8,7 +8,7 @@ class Bird:
     self.x = 50
     self.y = 300
     self.g = 0.5
-    self.vY = 2
+    self.vY = 1
 
     #create bird
     self.birdie = pygame.image.load("birdSprite.png").convert_alpha() #create surface object from image, convert alpha allows for transparency
@@ -20,13 +20,18 @@ class Bird:
     self.bird_rec = self.birdie.get_rect(center=(int(self.x), int(self.y)))
     self.bird_mask = pygame.mask.from_surface(self.birdie)
   
-  def update(self):
-    #moving
-    self.vY += self.g      #acc --> vel --> pos
-    self.y += self.vY
-
-    angle = max(-90, min(30, self.vY * -3))
-    self.birdie = pygame.transform.rotate(self.og_birdie, angle)
+  def update(self, is_present, indexF_y):
+    if is_present:
+      distance = indexF_y - self.y
+      self.y += distance * 0.2
+      self.vY = 0
+      self.birdie = self.og_birdie
+    else:
+      self.vY += self.g      #acc --> vel --> pos
+      self.y += self.vY
+      angle = max(-90, min(30, self.vY * -3))
+      self.birdie = pygame.transform.rotate(self.og_birdie, angle)
+      
     self.bird_rec = self.birdie.get_rect(center=(int(self.x), int(self.y)))
     self.bird_mask = pygame.mask.from_surface(self.birdie)
     #collision prep

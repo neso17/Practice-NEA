@@ -52,6 +52,8 @@ class Pipe:
   def successfulPass(self, bird):
     if not self.passed and self.scr_w < bird.bird_rec.x:
       self.passed = True
+      #return True
+    #return False # this will fix the uneven scoring thing
     return self.passed
   
   def draw(self, screen):
