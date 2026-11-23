@@ -1,12 +1,13 @@
 import pygame
 from bird import Bird
+from gesture import Gesture
 from pipe import Pipe
 
 
 class Game:
     def __init__(self):
         self.screen_w = 1600
-        self.screen_h = 1000
+        self.screen_h = 900
         #set up display: input is tuple of (width, height)
         self.screen = pygame.display.set_mode((self.screen_w, self.screen_h))
         pygame.display.set_caption("Flappy Bird")
@@ -25,8 +26,8 @@ class Game:
         self.high_score = 0
         self.score = 0
         
+        self.gesture = Gesture(self.screen_w, self.screen_h)
         self.bird = Bird((255, 255, 0), 55)
-        self.camera = None  #EDIT
         self.pipes = []
 
         self.PIPE_SPAWN = pygame.USEREVENT + 1      # cusotm event PIPE_SPAWN
@@ -39,7 +40,27 @@ class Game:
         self.state = "PLAY"
 
     def handle_events(self):
-        #event is a object- params: eventtype, pump(clear queue), exlude) returns List
+        # 2. Handle continuous gesture input & state transitions every frame
+        currentG = self.gesture.get_gesture()
+        indexF_y = self.gesture.get_indexF_y()
+
+        if self.state == "START":
+            if currentG == "POINT":
+                self.state = "PLAY"
+
+        elif self.state == "PLAY":
+            if currentG == "NONE" or indexF_y is None:
+                self.state = "PAUSE"
+
+        elif self.state == "PAUSE":
+            if currentG != "NONE" and indexF_y is not None:
+                self.state = "PLAY"
+
+        elif self.state == "END":
+            if currentG == "CLICK":
+                self.reset_game()
+
+        # 1. Handle Pygame window, keyboard, and timer events
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 pygame.quit()
@@ -47,10 +68,8 @@ class Game:
             if event.type == pygame.KEYDOWN:
                 if self.state == "START" and event.key == pygame.K_s:
                     self.state = "PLAY"
-                
                 elif self.state == "PLAY" and event.key == pygame.K_SPACE:
                     self.bird.jumpUp()
-                
                 elif self.state == "END" and event.key == pygame.K_r:
                     self.reset_game()
 
@@ -58,10 +77,13 @@ class Game:
                 self.pipes.append(Pipe(self.screen_w, self.screen_h))
 
 
+
     def update(self):
         self.handle_events()
         if self.state == "PLAY":
-            self.bird.update()
+            is_present = self.gesture.is_present()
+            indexF_y = self.gesture.get_indexF_y()
+            self.bird.update(is_present, indexF_y)
 
             for pipe in self.pipes[:]:
                 pipe.move()
@@ -74,16 +96,16 @@ class Game:
             if self.bird.y > self.screen_h or self.bird.y < 0 or any(pipe.hasCollided(self.bird) for pipe in self.pipes):
                 self.state = "END"
                 if self.score > self.high_score:
-                    self.high_score = self.score
-
-    def draw_background(self):
-        self.screen.fill((113, 197, 207))
-        self.screen.blit(self.bg, (0, 0))
+                    self.high_score = self.score       
 
     def draw(self):
-        self.draw_background()
+        self.screen.fill((113, 197, 207))
+        self.screen.blit(self.bg, (0, 0))
+        self.gesture.draw_hand(self.screen)  # Draw hand skeleton overlay on top of game screen
+
+
         if self.state == "START":
-            start_txt = self.font.render("Press 'S' to Start!", True, (255, 255, 255))
+            start_txt = self.font.render("Point to start (or Press 'S')!", True, (255, 255, 255))
             self.screen.blit(start_txt, (self.screen_w // 2 - 100, self.screen_h // 2))
 
         elif self.state == "PLAY":
@@ -108,7 +130,7 @@ class Game:
             over_txt = self.large_font.render("GAME OVER", True, (255, 0, 0))
             score_txt = self.font.render(f"Final Score: {self.score}", True, (255, 255, 255))
             high_txt = self.font.render(f"High Score: {self.high_score}", True, (0, 255, 0))
-            retry_txt = self.font.render("Press 'R' to Restart", True, (255, 255, 255))
+            retry_txt = self.font.render(f"Click to restart (or Press 'R')", True, (255, 255, 255))
 
             self.screen.blit(over_txt, (self.screen_w // 2 - 110, self.screen_h // 2 - 80))
             self.screen.blit(score_txt, (self.screen_w // 2 - 80, self.screen_h // 2 - 10))
@@ -119,6 +141,7 @@ class Game:
         
     def run(self):
         while True:
+            #self.gesture.update()
             self.update()
             self.draw()
             self.clock.tick(60)
